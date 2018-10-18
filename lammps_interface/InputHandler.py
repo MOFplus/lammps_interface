@@ -311,8 +311,8 @@ class Options(object):
                                                    "cells that were needed to produce the simulation "+
                                                    "supercell.")
 
-        parser.add_argument(metavar="CIF", dest="cif_file",
-                            help="path to cif file to interpret")
+        #parser.add_argument(metavar="CIF", dest="cif_file",
+        #                    help="path to cif file to interpret")
 
         args = vars(parser.parse_args())
         self._set_attr(args)

@@ -26,8 +26,8 @@ if sys.version_info < (3, 0):
 
 
 class LammpsSimulation(object):
-    def __init__(self, options):
-        self.name = clean(options.cif_file)
+    def __init__(self, name, options):
+        self.name = name
         self.special_commands = []
         self.options = options
         self.molecules = []
@@ -747,14 +747,15 @@ class LammpsSimulation(object):
             wd = os.getcwd()
 
         data_str = self.construct_data_file()
-        with open(os.path.join(wd, "data.%s" % self.name), 'w') as datafile:
+        # RS changed filenames to match with pylmps
+        with open(os.path.join(wd, "%s.data" % self.name), 'w') as datafile:
             datafile.writelines(data_str)
 
         inp_str = self.construct_input_file()
-        with open(os.path.join(wd, "in.%s" % self.name), 'w') as inpfile:
+        with open(os.path.join(wd, "%s.in" % self.name), 'w') as inpfile:
             inpfile.writelines(inp_str)
 
-        print("Files created! -> %s" % wd)
+        # print("Files created! -> %s" % wd)
 
     def construct_data_file(self):
 
@@ -1202,8 +1203,11 @@ class LammpsSimulation(object):
         inp_str += "%-15s %s\n"%("atom_style","full")
         inp_str += "%-15s %s\n"%("boundary","p p p")
         inp_str += "\n"
-        if(len(self.unique_pair_types.keys()) > 0):
-            inp_str += "%-15s %s\n"%("pair_style", self.pair_style)
+
+        ## RS DEBUG DEBUG
+        inp_str += "%-15s %s\n" % ("pair_style", self.options.pair_style)
+        #if(len(self.unique_pair_types.keys()) > 0):
+        #    inp_str += "%-15s %s\n"%("pair_style", self.pair_style)
         if(len(self.unique_bond_types.keys()) > 0):
             inp_str += "%-15s %s\n"%("bond_style", self.bond_style)
         if(len(self.unique_angle_types.keys()) > 0):
@@ -1212,8 +1216,9 @@ class LammpsSimulation(object):
             inp_str += "%-15s %s\n"%("dihedral_style", self.dihedral_style)
         if(len(self.unique_improper_types.keys()) > 0):
             inp_str += "%-15s %s\n"%("improper_style", self.improper_style)
-        if(self.kspace_style):
-            inp_str += "%-15s %s\n"%("kspace_style", self.kspace_style)
+        ## RS DEBUG DEBUG
+        #if(self.kspace_style):
+        #    inp_str += "%-15s %s\n"%("kspace_style", self.kspace_style)
         inp_str += "\n"
 
         # general catch-all for extra force field commands needed.

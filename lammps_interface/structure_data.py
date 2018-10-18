@@ -1539,12 +1539,16 @@ def from_CIF(cifname):
                                      data['_cell_angle_beta'],
                                      data['_cell_angle_gamma']]]
     cell.set_params(cellparams)
+    print ("DEBUG DEBUG")
+    print (cellparams)
 
     #add atom nodes
     id = cifobj.block_order.index('atoms')
     atheads = cifobj._headings[id]
     for atom_data in zip(*[data[i] for i in atheads]):
         kwargs = {a:j.strip() for a, j in zip(atheads, atom_data)}
+        print ("DEBUG DEBUG kwargs from atoms")
+        print (kwargs)
         mg.add_atomic_node(**kwargs)
 
     # add bond edges, if they exist
@@ -1553,10 +1557,52 @@ def from_CIF(cifname):
         bondheads = cifobj._headings[id]
         for bond_data in zip(*[data[i] for i in bondheads]):
             kwargs = {a:j.strip() for a, j in zip(bondheads, bond_data)}
+            print ("DEBUG DEBUG kwargs from bonds")
+            print (kwargs)
             mg.add_bond_edge(**kwargs)
     except:
         # catch no bonds
         print("No bonds reported in cif file - computing bonding..")
+    mg.store_original_size()
+    mg.cell = cell
+    return cell, mg
+
+
+def from_molsys(mol, name="molsys"):
+    """RS: generates cell and molecular graph from mol object directly instead
+    of writing to cif file
+    all stolen from "from_CIF"
+    """
+    # obtain atoms and cell
+    cell = Cell()
+    # add data to molecular graph (to be parsed later..)
+    mg = MolecularGraph(name=name)
+    # set cellparams from mol object
+    cell.set_params(mol.get_cellparams())
+
+    #add atom nodes
+    fxyz  = mol.get_frac_from_xyz()
+    elems = mol.get_elems()
+    alabels = []
+    for i in range(mol.get_natoms()):
+        e = elems[i].capitalize()
+        al = "%s%d" % (e, i)
+        alabels.append(al)
+        kwargs = {"_atom_site_label": al,\
+                  "_atom_site_fract_x": "%f" % fxyz[i,0],\
+                  "_atom_site_fract_y": "%f" % fxyz[i,1],\
+                  "_atom_site_fract_z": "%f" % fxyz[i,2],\
+                  "_atom_site_type_symbol": e,\
+                  }
+        mg.add_atomic_node(**kwargs)
+
+    # add bond edges
+    bonds = mol.get_ctab()
+    for b in bonds:
+        kwargs = {"_geom_bond_atom_site_label_1": alabels[b[0]],\
+                  "_geom_bond_atom_site_label_2": alabels[b[1]],\
+                }
+        mg.add_bond_edge(**kwargs)
     mg.store_original_size()
     mg.cell = cell
     return cell, mg

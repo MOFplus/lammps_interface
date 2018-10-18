@@ -1,15 +1,23 @@
 [![Build Status](https://travis-ci.org/kbsezginel/lammps_interface.svg?branch=master)](https://travis-ci.org/kbsezginel/lammps_interface)
-# LAMMPS Interface
-## Authors
+# Modified LAMMPS Interface for pylmps
+## Authors of the original code
 
 -   Peter Boyd
 -   Mohamad Moosavi
 -   Matthew Witman
 
+## to be blamed for the crippled version:
+
+-   Rochus Schmid [RUB/MOF+]
+
 ## Description
 This program was designed for easy interface between the crystallographic
 information file (.[cif]) and the Large-scale Atomic Molecular Massively
 Parallel Simulator ([Lammps]).
+
+The modified version can not read a file anymore but gets a mol object (MOFplus/molsys) and creates
+only UFF or UFF4MOF input for lammps with the pylmps wrapper.
+NOTE: If you want to use this code for its orginal purpose use the original code. No reading of CIF files possible.
 
 ## Installation
 Clone the repository, enter the directory and install dependencies by:
@@ -21,22 +29,6 @@ The Python module can be installed globally by:
 ```
 python setup.py install
 ```
-
-## Usage
-
-### Command line interface
-To see the optional arguments type:
-```
-python lammps_interface.py --help
-```
-To create [Lammps] simulation files for a given cif file type:
-```
-python lammps_interface.py cif_file.cif
-```
-This will create [Lammps] simulation files with UFF parameters.
-
-### Jupyter notebook
-In order to implement module to your project check out Jupyter notebooks provided in this repository in `/notebooks` for usage examples.
 
 ## Licence
 MIT licence (see LICENCE file)
