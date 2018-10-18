@@ -702,23 +702,25 @@ class LammpsSimulation(object):
                     sys.exit()
         self.supercell=supercell
         if np.any(np.array(supercell) > 1):
-            print("Re-sizing to a %i x %i x %i supercell. "%(supercell))
+            pass 
+            ## JK/RS no we do not want to make supercells automagically ...   
+            # print("Re-sizing to a %i x %i x %i supercell. "%(supercell))
 
-            #TODO(pboyd): apply to subgraphs as well, if requested.
-            self.graph.build_supercell(supercell, self.cell)
-            molcount = 0
-            if self.subgraphs:
-                molcount = max([g.molecule_id for g in self.subgraphs])
+            # #TODO(pboyd): apply to subgraphs as well, if requested.
+            # self.graph.build_supercell(supercell, self.cell)
+            # molcount = 0
+            # if self.subgraphs:
+            #     molcount = max([g.molecule_id for g in self.subgraphs])
 
-            for mtype in list(self.molecule_types.keys()):
-                # prompt for replication of this molecule in the supercell.
-                rep = self.subgraphs[self.molecule_types[mtype][0]]
-                response = input("Would you like to replicate molceule %i with atoms (%s) in the supercell? [y/n]: "%
-                        (mtype, ", ".join([rep.node[j]['element'] for j in rep.nodes()])))
-                if response in ['y', 'Y', 'yes']:
-                    for m in self.molecule_types[mtype]:
-                        self.subgraphs[m].build_supercell(supercell, self.cell, track_molecule=True, molecule_len=molcount)
-            self.cell.update_supercell(supercell)
+            # for mtype in list(self.molecule_types.keys()):
+            #     # prompt for replication of this molecule in the supercell.
+            #     rep = self.subgraphs[self.molecule_types[mtype][0]]
+            #     response = input("Would you like to replicate molceule %i with atoms (%s) in the supercell? [y/n]: "%
+            #             (mtype, ", ".join([rep.node[j]['element'] for j in rep.nodes()])))
+            #     if response in ['y', 'Y', 'yes']:
+            #         for m in self.molecule_types[mtype]:
+            #             self.subgraphs[m].build_supercell(supercell, self.cell, track_molecule=True, molecule_len=molcount)
+            # self.cell.update_supercell(supercell)
 
     def merge_graphs(self):
         for mgraph in self.subgraphs:
