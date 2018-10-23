@@ -30,7 +30,10 @@ class Options(object):
 
     def __init__(self):
         #print("Lammps_interface version: %s"%__version__)
+        import sys
+        sys.argv = []
         self.run_command_line_options()
+        return
 
     def run_command_line_options(self):
         parser = ArgumentParser(description="LAMMPS interface :D", prog="lammps_interface")
