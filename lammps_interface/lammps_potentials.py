@@ -12,10 +12,10 @@ class BondPotential(object):
 
     class Class2(object):
         """Potential defined as
-
-        E = K2*(r-R0)^2 + K3*(r-R0)^3 + K4*(r-R0)^4
-
-        Input parameters: R0, K2, K3, K4
+        
+            E = K2*(r-R0)^2 + K3*(r-R0)^3 + K4*(r-R0)^4
+        
+        Input parameters: R0, K2, K3, K4.
         """
         def __init__(self):
             self.name = "class2"
@@ -1178,6 +1178,29 @@ class PairPotential(object):
                                          self.sig)
         def __repr__(self):
             return "%s %.3f"%(self.name, self.cutoff)
+    
+    class LjCut(object):
+        """Potential defined as
+
+        E = 4*eps*[(sig/r)^12 - (sig/r)^6] r < rc
+
+        """
+        def __init__(self):
+            self.name = "lj/cut"
+            self.eps = 0.
+            self.sig = 0.
+            self.reduced = False
+            self.cutoff = 0.
+        def __str__(self):
+            if self.reduced:
+                return "%15.6f %15.6f"%(self.eps,
+                                        self.sig)
+            return "%28s %15.6f %15.6f"%(self.name,
+                                         self.eps,
+                                         self.sig)
+        def __repr__(self):
+            return "%s %.3f"%(self.name, self.cutoff)
+
 
     class LjCharmmCoulLong(object):
         """Potential defined as

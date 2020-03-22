@@ -52,6 +52,7 @@ class LammpsSimulation(object):
         self.no_molecule_pair = True  # ensure that h-bonding will not occur between molecules of the same type
         self.fix_shake = {}
         self.fix_rigid = {}
+        self.kspace_style = False
 
     def set_MDMC_config(self, MDMC_config):
         self.MDMC_config = MDMC_config
@@ -100,13 +101,13 @@ class LammpsSimulation(object):
             if data['force_field_type'] is None:
                 if data['h_bond_donor']:
                     # add neighbors to signify type of hbond donor
-                    label = (data['element'], data['h_bond_donor'], molid, tuple(sorted([g.node[j]['element'] for j in g.neighbors(node)])))
+                    label = (data['element'], data['h_bond_donor'], molid, tuple(sorted([g.nodes[j]['element'] for j in g.neighbors(node)])))
                 else:
                     label = (data['element'], data['h_bond_donor'], molid)
             else:
                 if data['h_bond_donor']:
                     # add neighbors to signify type of hbond donor
-                    label = (data['force_field_type'], data['h_bond_donor'], molid, tuple(sorted([g.node[j]['element'] for j in g.neighbors(node)])))
+                    label = (data['force_field_type'], data['h_bond_donor'], molid, tuple(sorted([g.nodes[j]['element'] for j in g.neighbors(node)])))
                 else:
                     label = (data['force_field_type'], data['h_bond_donor'], molid)
 
@@ -302,7 +303,9 @@ class LammpsSimulation(object):
 
     def define_styles(self):
         # should be more robust, some of the styles require multiple parameters specified on these lines
-        self.kspace_style = "ewald %f"%(0.000001)
+        charges = not np.allclose(0.0, [float(self.graph.nodes[i]['charge']) for i in list(self.graph.nodes)], atol=0.00001)
+        if(charges):
+            self.kspace_style = "ewald %f"%(0.000001)
         bonds = set([j['potential'].name for n1, n2, j in list(self.unique_bond_types.values())])
         if len(list(bonds)) > 1:
             self.bond_style = "hybrid %s"%" ".join(list(bonds))
@@ -371,7 +374,6 @@ class LammpsSimulation(object):
                 self.graph.find_metal_sbus = True # true for BTW_FF and Dubbeldam
             if (self.options.force_field == "Dubbeldam"):
                 self.graph.find_organic_sbus = True
-
             self.graph.compute_topology_information(self.cell, self.options.tol, self.options.neighbour_size)
         except AttributeError:
             # no cell set yet
@@ -445,7 +447,7 @@ class LammpsSimulation(object):
             # prompt for ForceField?
             rep = self.subgraphs[self.molecule_types[mtype][0]]
             #response = input("Would you like to apply a new force field to molecule type %i with atoms (%s)? [y/n]: "%
-            #        (mtype, ", ".join([rep.node[j]['element'] for j in rep.nodes()])))
+            #        (mtype, ", ".join([rep.nodes[j]['element'] for j in rep.nodes()])))
             #ff = self.options.force_field
             #if response.lower() in ['y','yes']:
             #    ff = input("Please enter the name of the force field: ")
@@ -457,7 +459,7 @@ class LammpsSimulation(object):
             ff = self.options.mol_ff
             if ff is None:
                 ff = self.options.force_field
-                atoms = ", ".join([rep.node[j]['element'] for j in rep.nodes()])
+                atoms = ", ".join([rep.nodes[j]['element'] for j in rep.nodes()])
                 print("WARNING: Molecule %s with atoms (%s) will be using the %s force field as no "%(mtype,atoms,ff)+
                       " value was set for molecules. To prevent this warning "+
                       "set --molecule-ff=[some force field] on the command line.")
@@ -489,192 +491,7 @@ class LammpsSimulation(object):
 
     def assign_molecule_ids(self, graph):
         for node in graph.nodes():
-            graph.node[node]['molid'] = graph.molecule_id
-
-    def molecule_template(self, mol):
-        """ Construct a molecule template for
-        reading and insertions in a LAMMPS simulation.
-
-        This combines two classes which have
-        been separated conceptually - ForceField and
-        Molecules.
-        For some molecules, the force field is implicit
-        within the structure (e.g. TIP5P_Water molecule
-        must be used with the TIP5P ForceField).
-        But one can imagine cases where this is not true
-        (alkanes? CO2?).
-
-        """
-        # no error checking here, it is assumed that the user
-        # knows which force field to pair with which molecule
-        # I'm not sure what would happen if there were a mismatch
-        # but hopefully error-checking elsewhere in the code
-        # will catch these things.
-        molecule = getattr(Molecules, mol)()
-        if self.options.mol_ff is None:
-            mol_ff = self.options.force_field
-
-        elif self.options.mol_ff.endswith("_Water"):
-            # parse if _Water is at the end to get the force
-            # fields for various water models.
-            mol_ff = mol[:-6]
-        else:
-            # just take the general force field used on the
-            # framework
-            mol_ff = self.options.mol_ff
-        #TODO(pboyd): Check how h-bonding is handeled at this level
-        ff = getattr(ForceFields, mol_ff)(graph=molecule,
-                                     cutoff=self.options.cutoff)
-
-        # add the unique potentials to the unique_dictionaries.
-        self.unique_atoms(molecule)
-        self.unique_bonds(molecule)
-        self.unique_angles(molecule)
-        self.unique_dihedrals(molecule)
-        self.unique_impropers(molecule)
-        # somehow update atom, bond, angle, dihedral, improper etc. types to
-        # include atomic species that don't exist yet..
-        self.template_molecule = molecule
-        template_file = "%s.molecule"%molecule.__class__.__name__
-        file = open(template_file, 'w')
-        file.writelines(molecule.str(atom_types=self.atom_ff_type))
-        file.close()
-        print('Molecule template file written as %s'%template_file)
-
-    def add_co2_model(self, ngraph, ff):
-        size = ngraph.number_of_nodes()
-        if size < 3 or size > 3:
-            print("Error: cannot assign %s "%(ff) +
-                  "to molecule of size %i, with "%(size)+
-                  "atoms (%s)"%(", ".join([ngraph.node[kk]['element'] for
-                                           kk in ngraph.nodes()])))
-            print("If this is a CO2 molecule with pre-existing "+
-                    "dummy atoms for a particular force field, "+
-                    "please remove them and re-run this code.")
-            sys.exit()
-        for node in ngraph.nodes():
-            if ngraph.node[node]['element'] == "C":
-                catom = ngraph.node[node]
-            elif ngraph.node[node]['element'] == "O":
-                try:
-                    oatom1
-                    o2id = node
-                    oatom2 = ngraph.node[node]
-                except NameError:
-                    o1id = node
-                    oatom1 = ngraph.node[node]
-
-        co2 = getattr(Molecules, ff)()
-        co2.approximate_positions(C_pos  = catom['cartesian_coordinates'],
-                                  O_pos1 = oatom1['cartesian_coordinates'],
-                                  O_pos2 = oatom2['cartesian_coordinates'])
-
-        # update the co2 atoms in the graph with the force field molecule
-        mol_c = deepcopy(co2.node[1])
-        mol_o1 = deepcopy(co2.node[2])
-        mol_o2 = deepcopy(co2.node[3])
-        # hackjob - get rid of the angle data on the carbon, so that
-        # the framework indexed values for each oxygen remain with the carbon atom.
-        mol_c.pop('angles')
-        catom.update(mol_c)
-        oatom1.update(mol_o1)
-        oatom2.update(mol_o2)
-        #for node in ngraph.nodes():
-        #    #data = deepcopy(ngraph.node[node]) # doesn't work - some of the data is
-        #                                        # specific to the molecule in the
-        #                                        # framework.
-
-        #    if data['element'] == "C":
-        #        cid = node
-        #        ngraph.node[node] = co2.node[1].copy()
-        #    elif data['element'] == "O":
-        #        try:
-        #            otm1
-        #            ngraph.node[node] = co2.node[3].copy()
-        #        except NameError:
-        #            otm1 = node
-        #            ngraph.node[node] = co2.node[2].copy()
-
-    def add_water_model(self, ngraph, ff):
-        size = ngraph.number_of_nodes()
-        if size < 3 or size > 3:
-            print("Error: cannot assign %s "%(ff) +
-                  "to molecule of size %i, with "%(size)+
-                  "atoms (%s)"%(", ".join([ngraph.node[kk]['element'] for
-                                           kk in ngraph.nodes()])))
-            print("If this is a water molecule with pre-existing "+
-                    "dummy atoms for a particular force field, "+
-                    "please remove them and re-run this code.")
-            sys.exit()
-        for node in ngraph.nodes():
-            if ngraph.node[node]['element'] == "O":
-                oid = node
-                oatom = ngraph.node[node]
-            elif ngraph.node[node]['element'] == "H":
-                try:
-                    hatom1
-                    h2id = node
-                    hatom2 = ngraph.node[node]
-                except NameError:
-                    h1id = node
-                    hatom1 = ngraph.node[node]
-
-        h2o = getattr(Molecules, ff)()
-        h2o.approximate_positions(O_pos  = oatom['cartesian_coordinates'],
-                                  H_pos1 = hatom1['cartesian_coordinates'],
-                                  H_pos2 = hatom2['cartesian_coordinates'])
-
-        # update the water atoms in the graph with the force field molecule
-        mol_o = deepcopy(h2o.node[1])
-        mol_h1 = deepcopy(h2o.node[2])
-        mol_h2 = deepcopy(h2o.node[3])
-        # hackjob - get rid of the angle data on the carbon, so that
-        # the framework indexed values for each oxygen remain with the carbon atom.
-        try:
-            mol_o.pop('angles')
-        except KeyError:
-            pass
-
-        oatom.update(mol_o)
-        hatom1.update(mol_h1)
-        hatom2.update(mol_h2)
-        # update the water atoms in the graph with the force field molecule
-        #for node in ngraph.nodes():
-        #    data = deepcopy(ngraph.node[node])
-        #    if data['element'] == "O":
-        #        oid = node
-        #        ngraph.node[node] = h2o.node[1].copy()
-        #    elif data['element'] == "H":
-        #        try:
-        #            htm1
-        #            ngraph.node[node] = h2o.node[3].copy()
-        #        except NameError:
-        #            htm1 = node
-        #            ngraph.node[node] = h2o.node[2].copy()
-
-        # add dummy particles
-        for dx in h2o.nodes():
-            if dx > 3:
-                self.increment_graph_sizes()
-                os = ngraph.original_size
-                ngraph.add_node(os, **h2o.node[dx])
-                ngraph.add_edge(oid, os, order=1.,
-                                weight=1.,
-                                length=h2o.Rdum,
-                                symflag='1_555',
-                                )
-                ngraph.sorted_edge_dict.update({(oid, os): (oid, os)})
-                ngraph.sorted_edge_dict.update({(os, oid): (oid, os)})
-        # compute new angles between dummy atoms
-        ngraph.compute_angles()
-
-
-    def increment_graph_sizes(self, inc=1):
-        self.graph.original_size += inc
-        for mtype in list(self.molecule_types.keys()):
-            for m in self.molecule_types[mtype]:
-                graph = self.subgraphs[m]
-                graph.original_size += 1
+            graph.nodes[node]['molid'] = graph.molecule_id
 
     def compute_simulation_size(self):
 
@@ -726,7 +543,7 @@ class LammpsSimulation(object):
         for mgraph in self.subgraphs:
             self.graph += mgraph
         for node in self.graph.nodes():
-            data=self.graph.node[node]
+            data=self.graph.nodes[node]
         if sorted(self.graph.nodes()) != [i+1 for i in range(len(self.graph.nodes()))]:
             print("Re-labelling atom indices.")
             reorder_dic = {i:j+1 for (i, j) in zip(sorted(self.graph.nodes()), range(len(self.graph.nodes())))}
@@ -740,8 +557,6 @@ class LammpsSimulation(object):
         self.unique_angles(self.graph)
         self.unique_dihedrals(self.graph)
         self.unique_impropers(self.graph)
-        if self.options.insert_molecule:
-            self.molecule_template(self.options.insert_molecule)
         self.unique_pair_terms()
         self.define_styles()
 
@@ -814,7 +629,7 @@ class LammpsSimulation(object):
             string += "\nBond Coeffs\n\n"
             for key in sorted(self.unique_bond_types.keys()):
                 n1, n2, bond = self.unique_bond_types[key]
-                atom1, atom2 = self.graph.node[n1], self.graph.node[n2]
+                atom1, atom2 = self.graph.nodes[n1], self.graph.nodes[n2]
                 if bond['potential'] is None:
                     no_bond.append("%5i : %s %s"%(key,
                                                   atom1['force_field_type'],
@@ -831,9 +646,9 @@ class LammpsSimulation(object):
             string += "\nAngle Coeffs\n\n"
             for key in sorted(self.unique_angle_types.keys()):
                 a, b, c, angle = self.unique_angle_types[key]
-                atom_a, atom_b, atom_c = self.graph.node[a], \
-                                         self.graph.node[b], \
-                                         self.graph.node[c]
+                atom_a, atom_b, atom_c = self.graph.nodes[a], \
+                                         self.graph.nodes[b], \
+                                         self.graph.nodes[c]
 
                 if angle['potential'] is None:
                     no_angle.append("%5i : %s %s %s"%(key,
@@ -853,9 +668,9 @@ class LammpsSimulation(object):
             string += "\nBondBond Coeffs\n\n"
             for key in sorted(self.unique_angle_types.keys()):
                 a, b, c, angle = self.unique_angle_types[key]
-                atom_a, atom_b, atom_c = self.graph.node[a], \
-                                         self.graph.node[b], \
-                                         self.graph.node[c]
+                atom_a, atom_b, atom_c = self.graph.nodes[a], \
+                                         self.graph.nodes[b], \
+                                         self.graph.nodes[c]
                 if (angle['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s\n"%(atom_a['force_field_type'],
@@ -873,9 +688,9 @@ class LammpsSimulation(object):
             string += "\nBondAngle Coeffs\n\n"
             for key in sorted(self.unique_angle_types.keys()):
                 a, b, c, angle = self.unique_angle_types[key]
-                atom_a, atom_b, atom_c = self.graph.node[a],\
-                                         self.graph.node[b],\
-                                         self.graph.node[c]
+                atom_a, atom_b, atom_c = self.graph.nodes[a],\
+                                         self.graph.nodes[b],\
+                                         self.graph.nodes[c]
                 if (angle['potential'].name!="class2"):
                     string += "%5i skip  "%(key)
                     string += "# %s %s %s\n"%(atom_a['force_field_type'],
@@ -895,10 +710,10 @@ class LammpsSimulation(object):
             string +=  "\nDihedral Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if dihedral['potential'] is None:
                     no_dihedral.append("%5i : %s %s %s %s"%(key,
                                        atom_a['force_field_type'],
@@ -918,10 +733,10 @@ class LammpsSimulation(object):
             string += "\nMiddleBondTorsion Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
 
                 if (dihedral['potential'].name!="class2"):
                     string += "%5i skip "%(key)
@@ -941,10 +756,10 @@ class LammpsSimulation(object):
             string += "\nEndBondTorsion Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if (dihedral['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s %s\n"%(atom_a['force_field_type'],
@@ -963,10 +778,10 @@ class LammpsSimulation(object):
             string += "\nAngleTorsion Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if (dihedral['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s %s\n"%(atom_a['force_field_type'],
@@ -985,10 +800,10 @@ class LammpsSimulation(object):
             string += "\nAngleAngleTorsion Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if (dihedral['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s %s\n"%(atom_a['force_field_type'],
@@ -1007,10 +822,10 @@ class LammpsSimulation(object):
             string += "\nBondBond13 Coeffs\n\n"
             for key in sorted(self.unique_dihedral_types.keys()):
                 a, b, c, d, dihedral = self.unique_dihedral_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if (dihedral['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s %s\n"%(atom_a['force_field_type'],
@@ -1033,10 +848,10 @@ class LammpsSimulation(object):
             string += "\nImproper Coeffs\n\n"
             for key in sorted(self.unique_improper_types.keys()):
                 a, b, c, d, improper = self.unique_improper_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
 
                 if improper['potential'] is None:
                     no_improper.append("%5i : %s %s %s %s"%(key,
@@ -1056,10 +871,10 @@ class LammpsSimulation(object):
             string += "\nAngleAngle Coeffs\n\n"
             for key in sorted(self.unique_improper_types.keys()):
                 a, b, c, d, improper = self.unique_improper_types[key]
-                atom_a, atom_b, atom_c, atom_d = self.graph.node[a], \
-                                                 self.graph.node[b], \
-                                                 self.graph.node[c], \
-                                                 self.graph.node[d]
+                atom_a, atom_b, atom_c, atom_d = self.graph.nodes[a], \
+                                                 self.graph.nodes[b], \
+                                                 self.graph.nodes[c], \
+                                                 self.graph.nodes[d]
                 if (improper['potential'].name!="class2"):
                     string += "%5i skip "%(key)
                     string += "# %s %s %s %s\n"%(atom_a['force_field_type'],
@@ -1079,7 +894,7 @@ class LammpsSimulation(object):
         if((len(self.unique_pair_types.keys()) > 0) and (self.pair_in_data)):
             string += "\nPair Coeffs\n\n"
             for key, (n,pair) in sorted(self.unique_atom_types.items()):
-                #pair = self.graph.node[n]
+                #pair = self.graph.nodes[n]
                 string += "%5i %s "%(key, pair['pair_potential'])
                 string += "# %s %s\n"%(pair['force_field_type'],
                                        pair['force_field_type'])
@@ -1115,7 +930,7 @@ class LammpsSimulation(object):
         if(len(self.unique_atom_types.keys()) > 0):
             string += "\nAtoms\n\n"
             for node in sorted_nodes:
-                atom = self.graph.node[node]
+                atom = self.graph.nodes[node]
                 string += "%8i %8i %8i %11.5f %10.5f %10.5f %10.5f\n"%(node,
                                                                        atom['molid'],
                                                                        atom['ff_type_index'],
@@ -1140,7 +955,7 @@ class LammpsSimulation(object):
             string += "\nAngles\n\n"
             idx = 0
             for node in sorted_nodes:
-                atom = self.graph.node[node]
+                atom = self.graph.nodes[node]
                 try:
                     for (a, c), angle in list(atom['angles'].items()):
                         idx += 1
@@ -1173,7 +988,7 @@ class LammpsSimulation(object):
             string += "\nImpropers\n\n"
             idx = 0
             for node in sorted_nodes:
-                atom = self.graph.node[node]
+                atom = self.graph.nodes[node]
                 try:
                     for (a, c, d), improper in list(atom['impropers'].items()):
                         idx += 1
@@ -1238,40 +1053,23 @@ class LammpsSimulation(object):
                     if pair[2] == 'hb':
                         inp_str += "%-15s %-4i %-4i %s # %s %s\n"%("pair_coeff",
                             pair[0], pair[1], data['h_bond_potential'],
-                            self.graph.node[n1]['force_field_type'],
-                            self.graph.node[n2]['force_field_type'])
+                            self.graph.nodes[n1]['force_field_type'],
+                            self.graph.nodes[n2]['force_field_type'])
                     elif pair[2] == 'table':
                         inp_str += "%-15s %-4i %-4i %s # %s %s\n"%("pair_coeff",
                             pair[0], pair[1], data['table_potential'],
-                            self.graph.node[n1]['force_field_type'],
-                            self.graph.node[n2]['force_field_type'])
+                            self.graph.nodes[n1]['force_field_type'],
+                            self.graph.nodes[n2]['force_field_type'])
                     else:
                         inp_str += "%-15s %-4i %-4i %s # %s %s\n"%("pair_coeff",
                             pair[0], pair[1], data['pair_potential'],
-                            self.graph.node[n1]['force_field_type'],
-                            self.graph.node[n2]['force_field_type'])
+                            self.graph.nodes[n1]['force_field_type'],
+                            self.graph.nodes[n2]['force_field_type'])
                 except IndexError:
                     pass
             inp_str += "#### END Pair Coefficients ####\n\n"
 
         inp_str += "\n#### Atom Groupings ####\n"
-        # Define a group for the template molecules, if they exist.
-        # It is conceptually hard to rationalize why this has to be
-        # a separate command and not combined with the 'molecule' command
-        if self.options.insert_molecule:
-            moltypes = []
-            for mnode, mdata in self.template_molecule.nodes_iter2(data=True):
-                moltypes.append(mdata['ff_type_index'])
-
-            inp_str += "%-15s %s type   "%("group", self.options.insert_molecule)
-            for x in self.groups(list(set(moltypes))):
-                x = list(x)
-                if (len(x) > 1):
-                    inp_str += " %i:%i"%(x[0], x[-1])
-                else:
-                    inp_str += " %i"%(x[0])
-            inp_str += "\n"
-
 
         framework_atoms = list(self.graph.nodes())
         if(self.molecules)and(len(self.molecule_types.keys()) < 32):
@@ -1407,9 +1205,6 @@ class LammpsSimulation(object):
            # inp_str += "%-15s %s\n"%("unfix", "output")
         # delete bond types etc, for molecules that are rigid
 
-        if self.options.insert_molecule:
-            inp_str += "%-15s %s %s.molecule\n"%("molecule", self.options.insert_molecule, self.options.insert_molecule)
-
         for mol in sorted(self.molecule_types.keys()):
             rep = self.subgraphs[self.molecule_types[mol][0]]
             if rep.rigid:
@@ -1436,31 +1231,6 @@ class LammpsSimulation(object):
             inp_str += "%-15s %-10s %s\n"%("variable", "tdamp", "equal 100*${dt}")
             molecule_fixes = []
             mollist = sorted(list(self.molecule_types.keys()))
-
-            if self.options.insert_molecule:
-                id = self.fixcount()
-                molecule_fixes.append(id)
-                if self.template_molecule.rigid:
-                    insert_rigid_id = id
-                    inp_str += "%-15s %s\n"%("fix", "%i %s rigid/small molecule langevin %.2f %.2f ${tdamp} %i mol %s"%(id,
-                                                                                            self.options.insert_molecule,
-                                                                                            self.options.temp,
-                                                                                            self.options.temp,
-                                                                                            np.random.randint(1,3000000),
-                                                                                            self.options.insert_molecule
-                                                                                            ))
-                else:
-                    # no idea if this will work..
-                    inp_str += "%-15s %s\n"%("fix", "%i %s langevin %.2f %.2f ${tdamp} %i"%(id,
-                                                                                        self.options.insert_molecule,
-                                                                                        self.options.temp,
-                                                                                        self.options.temp,
-                                                                                        np.random.randint(1,3000000)
-                                                                                        ))
-                    id = self.fixcount()
-                    molecule_fixes.append(id)
-                    inp_str += "%-15s %s\n"%("fix", "%i %i nve"%(id,molid))
-
 
             for molid in mollist:
                 id = self.fixcount()
@@ -1496,58 +1266,11 @@ class LammpsSimulation(object):
                 molecule_fixes.append(id)
                 inp_str += "%-15s %s\n"%("fix", "%i fram nve"%id)
 
-            # deposit within nvt equilibrium phase.  TODO(pboyd): This entire input file formation Needs to be re-thought.
-            if self.options.deposit:
-                deposit = self.options.deposit * np.prod(np.array(self.supercell))
-
-                # add a shift of the cell as the deposit of molecules tends to shift things.
-                id = self.fixcount()
-                inp_str += "%-15s %i all momentum 1 linear 1 1 1 angular\n"%("fix", id)
-                id = self.fixcount()
-                # define a region the size of the unit cell.
-                every = self.options.neqstp/2/deposit
-                if every <= 100:
-                    print("WARNING: you have set %i equilibrium steps, which may not be enough to "%(self.options.neqstp) +
-                            "deposit %i %s molecules. "%(deposit, self.options.insert_molecule) +
-                            "The metric used to create this warning is NEQSTP/2/DEPOSIT. So adjust accordingly.")
-                inp_str += "%-15s %-8s %-8s %i %s %i %s %i %s %s\n"%("region", "cell", "block", 0, "EDGE",
-                                                                     0, "EDGE", 0, "EDGE", "units lattice")
-                inp_str += "%-15s %i %s %s %i %i %i %i %s %s %s %.2f %s %s"%("fix", id, self.options.insert_molecule,
-                                                                             "deposit", deposit, 0, every,
-                                                                             np.random.randint(1, 3000000), "region",
-                                                                             "cell", "near", 2.0, "mol",
-                                                                             self.options.insert_molecule)
-                molecule_fixes.append(id)
-                # need rigid fixid
-                if self.template_molecule.rigid:
-                    inp_str += " rigid %i\n"%(insert_rigid_id)
-                else:
-                    inp_str += "\n"
-
             inp_str += "%-15s %i\n"%("thermo", 0)
             inp_str += "%-15s %i\n"%("run", self.options.neqstp)
             while(molecule_fixes):
                 fid = molecule_fixes.pop(0)
                 inp_str += "%-15s %i\n"%("unfix", fid)
-
-            if self.options.insert_molecule:
-                id = self.fixcount()
-                molecule_fixes.append(id)
-                if self.template_molecule.rigid:
-                    inp_str += "%-15s %s\n"%("fix", "%i %s rigid/nvt/small molecule temp %.2f %.2f ${tdamp} mol %s"%(id,
-                                                                                            self.options.insert_molecule,
-                                                                                            self.options.temp,
-                                                                                            self.options.temp,
-                                                                                            self.options.insert_molecule
-                                                                                            ))
-                else:
-                    # no idea if this will work..
-                    inp_str += "%-15s %s\n"%("fix", "%i %s nvt %.2f %.2f ${tdamp}"%(id,
-                                                                                        self.options.insert_molecule,
-                                                                                        self.options.temp,
-                                                                                        self.options.temp
-                                                                                        ))
-
 
             for molid in mollist:
                 id = self.fixcount()
@@ -1601,7 +1324,7 @@ class LammpsSimulation(object):
             min_style=True
             thermo_style=False
 
-            inp_str += "\n%-15s %s\n"%("dump", "str all atom 1 initial_structure.dump")
+            inp_str += "\n%-15s %s\n"%("dump", "str all atom 1 %s.initial_structure.dump"%(self.name))
             inp_str += "%-15s\n"%("run 0")
             inp_str += "%-15s %-10s %s\n"%("variable", "rs", "equal step")
             inp_str += "%-15s %-10s %s\n"%("variable", "readstep", "equal ${rs}")
@@ -1632,7 +1355,7 @@ class LammpsSimulation(object):
                                               " file %s.output.csv screen no"%(self.name))
             inp_str += "%-15s %-10s %s\n"%("variable", "do", "loop ${N}")
             inp_str += "%-15s %s\n"%("label", "loop_bulk")
-            inp_str += "%-15s %s\n"%("read_dump", "initial_structure.dump ${readstep} x y z box yes format native")
+            inp_str += "%-15s %s\n"%("read_dump", "%s.initial_structure.dump ${readstep} x y z box yes format native"%(self.name))
             inp_str += "%-15s %-10s %s\n"%("variable", "scaleVar", "equal 1.00-${totDev}+${do}*${sf}")
             inp_str += "%-15s %-10s %s\n"%("variable", "scaleA", "equal ${scaleVar}*${a}")
             inp_str += "%-15s %-10s %s\n"%("variable", "scaleB", "equal ${scaleVar}*${b}")
@@ -1670,7 +1393,7 @@ class LammpsSimulation(object):
             temprange.append(298.0)
             temprange.insert(0,1.0) # add 1 and 298 K simulations.
 
-            inp_str += "\n%-15s %s\n"%("dump", "str all atom 1 initial_structure.dump")
+            inp_str += "\n%-15s %s\n"%("dump", "str all atom 1 %s.initial_structure.dump"%(self.name))
             inp_str += "%-15s\n"%("run 0")
             inp_str += "%-15s %-10s %s\n"%("variable", "rs", "equal step")
             inp_str += "%-15s %-10s %s\n"%("variable", "readstep", "equal ${rs}")
@@ -1690,7 +1413,7 @@ class LammpsSimulation(object):
             inp_str += "%-15s %s\n"%("label", "loop_thermal")
             #fix1 = self.fixcount()
 
-            inp_str += "%-15s %s\n"%("read_dump", "initial_structure.dump ${readstep} x y z box yes format native")
+            inp_str += "%-15s %s\n"%("read_dump", "%s.initial_structure.dump ${readstep} x y z box yes format native"%(self.name))
             inp_str += "%-15s %s\n"%("thermo_style", "custom step temp cella cellb cellc vol etotal")
 
             # the ave/time fix must be after read_dump, or the averages are reported as '0'
@@ -1831,37 +1554,3 @@ class LammpsSimulation(object):
                 print("something went wrong")
         return mgraph
 
-def main():
-
-    # command line parsing
-    options = Options()
-    sim = LammpsSimulation(options)
-    cell, graph = from_CIF(options.cif_file)
-    sim.set_cell(cell)
-    sim.set_graph(graph)
-    sim.split_graph()
-    sim.assign_force_fields()
-    sim.compute_simulation_size()
-    sim.merge_graphs()
-    if options.output_cif:
-        print("CIF file requested. Exiting...")
-        write_CIF(graph, cell)
-        sys.exit()
-    if options.output_pdb:
-        print("PDB file requested. Exiting...")
-        write_PDB(graph, cell)
-        sys.exit()
-
-    sim.write_lammps_files()
-
-    # Additional capability to write RASPA files if requested
-    if options.output_raspa:
-        print("Writing RASPA files to current WD")
-        classifier=1
-        write_RASPA_CIF(graph, cell,classifier)
-        write_RASPA_sim_files(sim,classifier)
-        this_config = MDMC_config(sim)
-        sim.set_MDMC_config(this_config)
-
-if __name__ == "__main__":
-    main()

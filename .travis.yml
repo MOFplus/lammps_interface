@@ -20,7 +20,9 @@ before_script:
   - python -V
 
 script:
-  - python setup.py install
+  - pip install -e .[docs]
+  - lammps-interface --help
+  - cd docs; make html
 
 notifications:
   email: false

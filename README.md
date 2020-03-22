@@ -1,6 +1,8 @@
-[![Build Status](https://travis-ci.org/kbsezginel/lammps_interface.svg?branch=master)](https://travis-ci.org/kbsezginel/lammps_interface)
-# Modified LAMMPS Interface for pylmps
-## Authors of the original code
+[![Build Status](https://travis-ci.org/peteboyd/lammps_interface.svg?branch=master)](https://travis-ci.org/peteboyd/lammps_interface)
+[![Docs status](https://readthedocs.org/projects/lammps-interface/badge)](http://lammps-interface.readthedocs.io/)
+[![PyPI version](https://badge.fury.io/py/lammps-interface.svg)](https://badge.fury.io/py/lammps-interface)
+# LAMMPS Interface
+## Authors
 
 -   Peter Boyd
 -   Mohamad Moosavi
@@ -20,15 +22,33 @@ only UFF or UFF4MOF input for lammps with the pylmps wrapper.
 NOTE: If you want to use this code for its orginal purpose use the original code. No reading of CIF files possible.
 
 ## Installation
-Clone the repository, enter the directory and install dependencies by:
+Simply install from [PyPI](https://pypi.org/project/lammps-interface/):
 ```
-pip install -r requirements.txt
+pip install lammps-interface
 ```
 
-The Python module can be installed globally by:
+For development purposes, clone the repository and install it from source:
 ```
-python setup.py install
+pip install -e .
 ```
+
+Note: In both cases, this adds `lammps-interface` to your `PATH`.
+
+## Usage
+
+### Command line interface
+To see the optional arguments type:
+```
+lammps-interface --help
+```
+To create [Lammps] simulation files for a given cif file type:
+```
+lammps-interface cif_file.cif
+```
+This will create [Lammps] simulation files with UFF parameters.
+
+### Jupyter notebook
+In order to implement module to your project check out Jupyter notebooks provided in this repository in `/notebooks` for usage examples.
 
 ## Licence
 MIT licence (see LICENCE file)
@@ -38,7 +58,7 @@ The publication associated with this code is found here:
 
 Boyd, P. G., Moosavi, S. M., Witman, M. & Smit, B. Force-Field Prediction of Materials Properties in Metal-Organic Frameworks. J. Phys. Chem. Lett. 8, 357–363 (2017).
 
-dx.doi.org/10.1021/acs.jpclett.6b02532
+https://dx.doi.org/10.1021/acs.jpclett.6b02532
 
 [Lammps]: http://lammps.sandia.gov/
 [cif]: https://en.wikipedia.org/wiki/Crystallographic_Information_File
